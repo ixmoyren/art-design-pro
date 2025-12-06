@@ -1,5 +1,6 @@
 use axum::Router;
-use std::env;
+use std::path::PathBuf;
+use std::str::FromStr;
 use tower_http::services::ServeDir;
 
 #[tokio::main]
@@ -15,11 +16,8 @@ async fn main() {
 }
 
 fn app() -> Router {
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    let static_dir = current_dir
-        .parent()
-        .expect("Failed to get parent directory")
-        .join("dist");
+    // 使用相对目录来访问 dist
+    let static_dir = PathBuf::from_str("../dist").expect("Failed to get dist path");
     let static_files = ServeDir::new(&static_dir);
     let asset_dir = static_dir.join("assets");
     let asset_files = ServeDir::new(&asset_dir);
