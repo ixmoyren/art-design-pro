@@ -187,4 +187,11 @@ mod tests {
         let encoding = accept.choose_by(&support_accept_encoding);
         assert_eq!(encoding, Identity);
     }
+
+    #[test]
+    fn test_etag() {
+        let str = "\"2021bf398cf8cd5ba2b698fef775e783e074c85c8bab6ecb0bfe1beeedb7de51\"";
+        let result = str.parse::<headers::ETag>();
+        println!("{result:?}");
+    }
 }

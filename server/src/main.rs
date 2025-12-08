@@ -19,7 +19,6 @@ use dist::Dist;
 use embed_it::Entry;
 use headers::HeaderMapExt;
 use http::StatusCode;
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() {
@@ -34,7 +33,16 @@ async fn main() {
 }
 
 fn app() -> Router {
-    Router::new().route("/{path}", get(handle))
+    Router::new()
+        .route("/", get(root_handle))
+        .route("/{path}", get(handle))
+}
+
+async fn root_handle(
+    if_none_match: Option<TypedHeader<IfNoneMatch>>,
+    accept_encoding: Option<TypedHeader<AcceptEncoding>>,
+) -> impl IntoResponse {
+    static_handle("index.html".to_owned(), if_none_match, accept_encoding)
 }
 
 async fn handle(
@@ -43,12 +51,23 @@ async fn handle(
     accept_encoding: Option<TypedHeader<AcceptEncoding>>,
 ) -> impl IntoResponse {
     // 从 url 中提取要下载的静态文件路径，如果没有传入，默认返回 index.html
-    let path = if let Some(Path(path)) = path {
+    let path = if let Some(Path(path)) = path
+        && !path.is_empty()
+    {
         path
     } else {
         "index.html".to_owned()
     };
+    static_handle(path, if_none_match, accept_encoding)
+}
+
+fn static_handle(
+    path: String,
+    if_none_match: Option<TypedHeader<IfNoneMatch>>,
+    accept_encoding: Option<TypedHeader<AcceptEncoding>>,
+) -> impl IntoResponse {
     let mut base_header = headers::HeaderMap::new();
+    let dist = Dist;
     // 从静态资源中查找要下载的静态文件路径
     let Some(entry) = Dist.get(path.as_str()) else {
         return (base_header, StatusCode::NOT_FOUND).into_response();
@@ -70,7 +89,7 @@ async fn handle(
         }
         Entry::File(file) => *file,
     };
-    let Ok(etag) = file.etag().parse::<headers::ETag>() else {
+    let Ok(etag) = file.etag().value.as_str().parse::<headers::ETag>() else {
         return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
     };
     if let Some(TypedHeader(if_none_match)) = if_none_match
