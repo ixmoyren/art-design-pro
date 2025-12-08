@@ -7,7 +7,7 @@ use bytes::Bytes;
 use dist::Dist;
 use embed_it::Entry;
 use headers::HeaderMapExt;
-use http::StatusCode;
+use http::{HeaderValue, StatusCode};
 use server::accept_encoding::AcceptEncoding;
 use server::content_encoding::ContentEncoding;
 use server::etag::ETag;
@@ -61,6 +61,16 @@ fn static_handle(
     accept_encoding: Option<TypedHeader<AcceptEncoding>>,
 ) -> impl IntoResponse {
     let mut base_header = headers::HeaderMap::new();
+    let guess = mime_guess::MimeGuess::from_path(&path);
+    let content_type = if let Some(mime) = guess.first_raw().map(ToOwned::to_owned) {
+        mime
+    } else {
+        mime_guess::mime::APPLICATION_OCTET_STREAM.to_string()
+    };
+    let Ok(content_type_value) = HeaderValue::try_from(content_type) else {
+        return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+    };
+    base_header.insert(http::header::CONTENT_TYPE, content_type_value);
     // 从静态资源中查找要下载的静态文件路径
     let Some(entry) = Dist.get(path.as_str()) else {
         return (base_header, StatusCode::NOT_FOUND).into_response();
