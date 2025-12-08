@@ -1,6 +1,4 @@
-use crate::encoding::Encoding::{
-    Brotli, Chunked, Compress, Deflate, Ext, Gzip, Identity, Trailers, Zstd,
-};
+use crate::Encoding::{Brotli, Chunked, Compress, Deflate, Ext, Gzip, Identity, Trailers, Zstd};
 use headers_core::Error;
 use std::fmt;
 use std::str;

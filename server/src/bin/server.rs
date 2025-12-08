@@ -1,13 +1,3 @@
-mod accept_encoding;
-mod content_encoding;
-mod encoding;
-mod flat_csv;
-mod quality;
-
-use crate::accept_encoding::AcceptEncoding;
-use crate::content_encoding::ContentEncoding;
-use crate::encoding::Encoding;
-use crate::quality::{IntoQuality, QualityValue};
 use axum::Router;
 use axum::extract::Path;
 use axum::response::IntoResponse;
@@ -19,6 +9,9 @@ use dist::Dist;
 use embed_it::Entry;
 use headers::HeaderMapExt;
 use http::StatusCode;
+use server::accept_encoding::AcceptEncoding;
+use server::content_encoding::ContentEncoding;
+use server::{Encoding, IntoQuality, QualityValue};
 
 #[tokio::main]
 async fn main() {
@@ -67,7 +60,6 @@ fn static_handle(
     accept_encoding: Option<TypedHeader<AcceptEncoding>>,
 ) -> impl IntoResponse {
     let mut base_header = headers::HeaderMap::new();
-    let dist = Dist;
     // 从静态资源中查找要下载的静态文件路径
     let Some(entry) = Dist.get(path.as_str()) else {
         return (base_header, StatusCode::NOT_FOUND).into_response();

@@ -5,6 +5,9 @@ use std::marker::PhantomData;
 use bytes::BytesMut;
 use http::HeaderValue;
 
+use crate::util::TryFromValues;
+use headers_core::Error;
+
 // A single `HeaderValue` that can flatten multiple values with commas.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct FlatCsv<Sep = Comma> {
@@ -58,6 +61,16 @@ impl<Sep: Separator> FlatCsv<Sep> {
                 })
                 .map(|item| item.trim())
         })
+    }
+}
+
+impl<Sep: Separator> TryFromValues for FlatCsv<Sep> {
+    fn try_from_values<'i, I>(values: &mut I) -> Result<Self, Error>
+    where
+        I: Iterator<Item = &'i HeaderValue>,
+    {
+        let flat = values.collect();
+        Ok(flat)
     }
 }
 

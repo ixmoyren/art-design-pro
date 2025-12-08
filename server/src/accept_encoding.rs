@@ -1,6 +1,6 @@
-use crate::encoding::Encoding;
-use crate::flat_csv::FlatCsv;
-use crate::quality::QualityValue;
+use crate::util::encoding::Encoding;
+use crate::util::flat_csv::FlatCsv;
+use crate::util::quality::QualityValue;
 use axum::http;
 use headers_core::Error;
 use http::HeaderValue;
@@ -105,8 +105,8 @@ impl FromIterator<QualityValue<Encoding>> for AcceptEncoding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encoding::Encoding::{Ext, Gzip, Identity, Zstd};
-    use crate::quality::{IntoQuality, QualityValue};
+    use crate::util::encoding::Encoding::{Ext, Gzip, Identity, Zstd};
+    use crate::util::quality::{IntoQuality, QualityValue};
     use headers::HeaderMapExt;
 
     fn test_decode<T: headers_core::Header>(values: &[&str]) -> Option<T> {

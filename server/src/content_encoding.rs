@@ -1,5 +1,5 @@
-use crate::encoding::Encoding;
-use crate::flat_csv::FlatCsv;
+use crate::util::encoding::Encoding;
+use crate::util::flat_csv::FlatCsv;
 use headers_core::Error;
 use http::HeaderValue;
 
@@ -44,7 +44,7 @@ impl From<HeaderValue> for ContentEncoding {
 #[cfg(test)]
 mod tests {
     use crate::content_encoding::ContentEncoding;
-    use crate::encoding::Encoding::Gzip;
+    use crate::util::encoding::Encoding::Gzip;
     use headers::HeaderMapExt;
 
     fn test_decode<T: headers_core::Header>(values: &[&str]) -> Option<T> {
