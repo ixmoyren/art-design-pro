@@ -7,5 +7,5 @@ edition.workspace = true
 path = "lib.rs"
 
 [dependencies]
-embed_it = { version = "7.1.0", features = ["blake3", "brotli", "gzip", "zstd"] }
+embed_it = { version = "7.1.0", features = ["blake3", "brotli", "zstd"] }
 hex = "0.4"

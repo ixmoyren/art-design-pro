@@ -9,29 +9,22 @@ use hex::ToHex;
         field(factory = ETagHeaderValue, name = etag, trait_name = DirEtagField, global)
     ),
     file(
-        derive(Blake3), derive(Zstd), derive(Gzip), derive(Brotli),
+        derive(Blake3), derive(Zstd), derive(Brotli),
         field(factory = ETagHeaderValue, name = etag, trait_name = FileEtagField, global)
     )
 )]
 pub struct Dist;
 
-pub struct ETagHeaderValue {
-    header: String,
-    value: String,
-}
+pub struct ETagHeaderValue {}
 
 impl ETagHeaderValue {
-    pub fn create<T: Blake3_256Hash + ?Sized>(v: &T) -> Self {
-        let value = v.blake3_256().encode_hex();
-        Self {
-            header: format!("\"{value}\""),
-            value,
-        }
+    pub fn create<T: Blake3_256Hash + ?Sized>(v: &T) -> String {
+        v.blake3_256().encode_hex()
     }
 }
 
 impl DirFieldFactory for ETagHeaderValue {
-    type Field = Self;
+    type Field = String;
 
     fn create<T: Dir + ?Sized>(data: &T) -> Self::Field {
         Self::create(data)
@@ -39,7 +32,7 @@ impl DirFieldFactory for ETagHeaderValue {
 }
 
 impl FileFieldFactory for ETagHeaderValue {
-    type Field = Self;
+    type Field = String;
 
     fn create<T: File + ?Sized>(data: &T) -> Self::Field {
         Self::create(data)
