@@ -13,9 +13,20 @@ use server::content_encoding::ContentEncoding;
 use server::etag::ETag;
 use server::if_none_match::IfNoneMatch;
 use server::{Encoding, IntoQuality, QualityValue};
+use tracing::log::{debug, error, info};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{Layer, Registry, filter};
 
 #[tokio::main]
 async fn main() {
+    let subscriber = Registry::default().with(
+        tracing_subscriber::fmt::layer()
+            .pretty()
+            .with_ansi(true)
+            .with_filter(filter::LevelFilter::from_level(tracing::Level::DEBUG)),
+    );
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
     let router = app();
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
         .await
@@ -29,13 +40,14 @@ async fn main() {
 fn app() -> Router {
     Router::new()
         .route("/", get(root_handle))
-        .route("/{path}", get(handle))
+        .route("/{*path}", get(handle))
 }
 
 async fn root_handle(
     if_none_match: Option<TypedHeader<IfNoneMatch>>,
     accept_encoding: Option<TypedHeader<AcceptEncoding>>,
 ) -> impl IntoResponse {
+    debug!("/ -> /index.html");
     static_handle("index.html".to_owned(), if_none_match, accept_encoding)
 }
 
@@ -44,10 +56,12 @@ async fn handle(
     if_none_match: Option<TypedHeader<IfNoneMatch>>,
     accept_encoding: Option<TypedHeader<AcceptEncoding>>,
 ) -> impl IntoResponse {
+    debug!("The path obtained by the extractor: {path:?}");
     // 从 url 中提取要下载的静态文件路径，如果没有传入，默认返回 index.html
     let path = if let Some(Path(path)) = path
         && !path.is_empty()
     {
+        debug!("The path {path}");
         path
     } else {
         "index.html".to_owned()
@@ -67,12 +81,15 @@ fn static_handle(
     } else {
         mime_guess::mime::APPLICATION_OCTET_STREAM.to_string()
     };
+    debug!("The content type is {content_type}");
     let Ok(content_type_value) = HeaderValue::try_from(content_type) else {
+        error!("The content-type couldn't to header value");
         return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
     };
     base_header.insert(http::header::CONTENT_TYPE, content_type_value);
     // 从静态资源中查找要下载的静态文件路径
     let Some(entry) = Dist.get(path.as_str()) else {
+        error!("The file {path} not found in dist");
         return (base_header, StatusCode::NOT_FOUND).into_response();
     };
     let file = match entry {
@@ -81,10 +98,12 @@ fn static_handle(
             let path = format!("{}/index.html", dir.path().name());
 
             let Some(entry) = Dist.get(path.as_str()) else {
+                error!("The index.html not found in {path}");
                 // 如果没有直接返回 403 Forbidden
                 return (base_header, StatusCode::NOT_FOUND).into_response();
             };
             let Some(file) = entry.file() else {
+                error!("index.html is not allowed as a directory");
                 // 不允许将 index.html 作为目录
                 return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
             };
@@ -93,11 +112,13 @@ fn static_handle(
         Entry::File(file) => *file,
     };
     let Ok(etag) = file.etag().value.as_str().parse::<ETag>() else {
+        error!("The etag {} is invalid", file.etag().value);
         return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
     };
     if let Some(TypedHeader(if_none_match)) = if_none_match
         && if_none_match.precondition_passes(&etag)
     {
+        info!("if none match precondition has passed");
         return (base_header, StatusCode::NOT_MODIFIED).into_response();
     }
     // 保存 etag
