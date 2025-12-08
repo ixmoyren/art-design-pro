@@ -1,0 +1,11 @@
+[package]
+name = "dist"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+embed_it = { version = "7.1.0", features = ["blake3", "brotli", "gzip", "zstd"] }
+hex = "0.4"
