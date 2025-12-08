@@ -3,7 +3,6 @@ use axum::extract::Path;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum_extra::TypedHeader;
-use axum_extra::headers::IfNoneMatch;
 use bytes::Bytes;
 use dist::Dist;
 use embed_it::Entry;
@@ -11,6 +10,8 @@ use headers::HeaderMapExt;
 use http::StatusCode;
 use server::accept_encoding::AcceptEncoding;
 use server::content_encoding::ContentEncoding;
+use server::etag::ETag;
+use server::if_none_match::IfNoneMatch;
 use server::{Encoding, IntoQuality, QualityValue};
 
 #[tokio::main]
@@ -81,7 +82,7 @@ fn static_handle(
         }
         Entry::File(file) => *file,
     };
-    let Ok(etag) = file.etag().value.as_str().parse::<headers::ETag>() else {
+    let Ok(etag) = file.etag().value.as_str().parse::<ETag>() else {
         return (base_header, StatusCode::INTERNAL_SERVER_ERROR).into_response();
     };
     if let Some(TypedHeader(if_none_match)) = if_none_match
