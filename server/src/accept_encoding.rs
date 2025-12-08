@@ -1,218 +1,9 @@
-pub use self::Encoding::{Brotli, Chunked, Compress, Deflate, Ext, Gzip, Identity, Trailers};
+use crate::encoding::Encoding;
 use crate::flat_csv::FlatCsv;
+use crate::quality::QualityValue;
 use axum::http;
 use headers_core::Error;
 use http::HeaderValue;
-use std::cmp;
-use std::default::Default;
-use std::fmt;
-use std::str;
-
-/// A value to represent an encoding used in `Transfer-Encoding`
-/// or `Accept-Encoding` header.
-#[derive(Clone, PartialEq, Debug)]
-pub enum Encoding {
-    /// The `chunked` encoding.
-    Chunked,
-    /// The `br` encoding.
-    Brotli,
-    /// The `gzip` encoding.
-    Gzip,
-    /// The `deflate` encoding.
-    Deflate,
-    /// The `compress` encoding.
-    Compress,
-    /// The `identity` encoding.
-    Identity,
-    /// The `trailers` encoding.
-    Trailers,
-    /// Some other encoding that is less common, can be any String.
-    Ext(String),
-}
-
-impl fmt::Display for Encoding {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(match *self {
-            Chunked => "chunked",
-            Brotli => "br",
-            Gzip => "gzip",
-            Deflate => "deflate",
-            Compress => "compress",
-            Identity => "identity",
-            Trailers => "trailers",
-            Ext(ref s) => s.as_ref(),
-        })
-    }
-}
-
-impl str::FromStr for Encoding {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "chunked" => Ok(Chunked),
-            "br" => Ok(Brotli),
-            "deflate" => Ok(Deflate),
-            "gzip" => Ok(Gzip),
-            "compress" => Ok(Compress),
-            "identity" => Ok(Identity),
-            "trailers" => Ok(Trailers),
-            _ => Ok(Ext(s.to_owned())),
-        }
-    }
-}
-
-/// Represents a quality used in quality values.
-///
-/// Can be created with the `q` function.
-///
-/// # Implementation notes
-///
-/// The quality value is defined as a number between 0 and 1 with three decimal places. This means
-/// there are 1001 possible values. Since floating point numbers are not exact and the smallest
-/// floating point data type (`f32`) consumes four bytes, hyper uses an `u16` value to store the
-/// quality internally. For performance reasons you may set quality directly to a value between
-/// 0 and 1000 e.g. `Quality(532)` matches the quality `q=0.532`.
-///
-/// [RFC7231 Section 5.3.1](https://tools.ietf.org/html/rfc7231#section-5.3.1)
-/// gives more information on quality values in HTTP header fields.
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Quality(u16);
-
-impl Default for Quality {
-    fn default() -> Quality {
-        Quality(1000)
-    }
-}
-
-/// Represents an item with a quality value as defined in
-/// [RFC7231](https://tools.ietf.org/html/rfc7231#section-5.3.1).
-#[derive(Clone, PartialEq, Debug)]
-pub struct QualityValue<T> {
-    /// The actual contents of the field.
-    value: T,
-    /// The quality (client or server preference) for the value.
-    quality: Quality,
-}
-
-impl<T> QualityValue<T> {
-    /// Creates a new `QualityValue` from an item and a quality.
-    pub fn new(value: T, quality: Quality) -> QualityValue<T> {
-        QualityValue { value, quality }
-    }
-}
-
-impl<T> From<T> for QualityValue<T> {
-    fn from(value: T) -> QualityValue<T> {
-        QualityValue {
-            value,
-            quality: Quality::default(),
-        }
-    }
-}
-
-impl<T: PartialEq> PartialOrd for QualityValue<T> {
-    fn partial_cmp(&self, other: &QualityValue<T>) -> Option<cmp::Ordering> {
-        self.quality.partial_cmp(&other.quality)
-    }
-}
-
-impl<T: fmt::Display> fmt::Display for QualityValue<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.value, f)?;
-        match self.quality.0 {
-            1000 => Ok(()),
-            0 => f.write_str("; q=0"),
-            x => write!(f, "; q=0.{}", format!("{:03}", x).trim_end_matches('0')),
-        }
-    }
-}
-
-impl<T: str::FromStr> str::FromStr for QualityValue<T> {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<QualityValue<T>, Self::Err> {
-        // Set defaults used if parsing fails.
-        let mut raw_item = s;
-        let mut quality = 1f32;
-
-        let parts: Vec<&str> = s.rsplitn(2, ';').map(|x| x.trim()).collect();
-        if parts.len() == 2 {
-            if parts[0].len() < 2 {
-                return Err(Error::invalid());
-            }
-            if parts[0].starts_with("q=") || parts[0].starts_with("Q=") {
-                let q_part = &parts[0][2..parts[0].len()];
-                if q_part.len() > 5 {
-                    return Err(Error::invalid());
-                }
-                match q_part.parse::<f32>() {
-                    Ok(q_value) => {
-                        if (0f32..=1f32).contains(&q_value) {
-                            quality = q_value;
-                            raw_item = parts[1];
-                        } else {
-                            return Err(Error::invalid());
-                        }
-                    }
-                    Err(_) => return Err(Error::invalid()),
-                }
-            }
-        }
-        match raw_item.parse::<T>() {
-            // we already checked above that the quality is within range
-            Ok(item) => Ok(QualityValue::new(item, from_f32(quality))),
-            Err(_) => Err(Error::invalid()),
-        }
-    }
-}
-
-#[inline]
-fn from_f32(f: f32) -> Quality {
-    // this function is only used internally. A check that `f` is within range
-    // should be done before calling this method. Just in case, this
-    // debug_assert should catch if we were forgetful
-    debug_assert!(
-        (0f32..=1f32).contains(&f),
-        "q value must be between 0.0 and 1.0"
-    );
-    Quality((f * 1000f32) as u16)
-}
-
-mod internal {
-    use super::Quality;
-
-    // TryFrom is probably better, but it's not stable. For now, we want to
-    // keep the functionality of the `q` function, while allowing it to be
-    // generic over `f32` and `u16`.
-    //
-    // `q` would panic before, so keep that behavior. `TryFrom` can be
-    // introduced later for a non-panicking conversion.
-
-    pub trait IntoQuality: Sealed + Sized {
-        fn into_quality(self) -> Quality;
-    }
-
-    impl IntoQuality for f32 {
-        fn into_quality(self) -> Quality {
-            assert!(
-                (0f32..=1f32).contains(&self),
-                "float must be between 0.0 and 1.0"
-            );
-            super::from_f32(self)
-        }
-    }
-
-    impl IntoQuality for u16 {
-        fn into_quality(self) -> Quality {
-            assert!(self <= 1000, "u16 must be between 0 and 1000");
-            Quality(self)
-        }
-    }
-
-    pub trait Sealed {}
-    impl Sealed for u16 {}
-    impl Sealed for f32 {}
-}
 
 /// `Accept-Encoding` header, defined in
 /// [RFC7231](https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4)
@@ -236,7 +27,7 @@ mod internal {
 /// * `*`
 /// * `compress;q=0.5, gzip;q=1`
 /// * `gzip;q=1.0, identity; q=0.5, *;q=0`
-///
+#[derive(Clone, Eq, PartialEq)]
 pub struct AcceptEncoding(FlatCsv);
 
 impl headers_core::Header for AcceptEncoding {
@@ -265,6 +56,29 @@ impl AcceptEncoding {
     pub fn iter(&self) -> impl Iterator<Item = QualityValue<Encoding>> + '_ {
         self.0.iter().flat_map(|s| s.parse().ok())
     }
+
+    pub fn choose(&self) -> Encoding {
+        let mut quality_values = self.iter().collect::<Vec<_>>();
+        quality_values.sort_by_key(|q| std::cmp::Reverse(q.quality()));
+        if let Some(encoding) = quality_values.first() {
+            encoding.value().clone()
+        } else {
+            Encoding::Identity
+        }
+    }
+
+    pub fn choose_by(&self, accept_encoding: &AcceptEncoding) -> Encoding {
+        let mut choose_values = accept_encoding.iter().collect::<Vec<_>>();
+        choose_values.sort_by_key(|q| std::cmp::Reverse(q.quality()));
+        let mut quality_values = self.iter().collect::<Vec<_>>();
+        quality_values.sort_by_key(|q| std::cmp::Reverse(q.quality()));
+        for v in choose_values {
+            if let Some(v) = quality_values.iter().find(|q| (*q).value() == v.value()) {
+                return v.value().clone();
+            }
+        }
+        Encoding::Identity
+    }
 }
 
 impl From<HeaderValue> for AcceptEncoding {
@@ -291,6 +105,8 @@ impl FromIterator<QualityValue<Encoding>> for AcceptEncoding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encoding::Encoding::{Ext, Gzip, Identity, Zstd};
+    use crate::quality::{IntoQuality, QualityValue};
     use headers::HeaderMapExt;
 
     fn test_decode<T: headers_core::Header>(values: &[&str]) -> Option<T> {
@@ -314,21 +130,61 @@ mod tests {
 
         let as_vec = allowed.iter().collect::<Vec<_>>();
         assert_eq!(as_vec.len(), 3);
-        assert_eq!(as_vec[0], QualityValue::new(Gzip, Quality(1000)));
-        assert_eq!(as_vec[1], QualityValue::new(Identity, Quality(500)));
+        assert_eq!(as_vec[0], QualityValue::new(Gzip, 1000_u16.into_quality()));
+        assert_eq!(
+            as_vec[1],
+            QualityValue::new(Identity, 500_u16.into_quality())
+        );
         assert_eq!(
             as_vec[2],
-            QualityValue::new(Ext("*".to_owned()), Quality(0))
+            QualityValue::new(Ext("*".to_owned()), 0_u16.into_quality())
         );
     }
 
     #[test]
     fn from_iter() {
-        let gzip = QualityValue::new(Gzip, Quality(1000));
-        let identity = QualityValue::new(Identity, Quality(500));
-        let allow: AcceptEncoding = vec![gzip, identity].into_iter().collect();
+        let gzip = QualityValue::new(Gzip, 1000_u16.into_quality());
+        let identity = QualityValue::new(Identity, 500_u16.into_quality());
+        let accept: AcceptEncoding = vec![gzip, identity].into_iter().collect();
 
-        let headers = test_encode(allow);
+        let headers = test_encode(accept);
         assert_eq!(headers["accept-encoding"], "gzip, identity; q=0.5");
+    }
+
+    #[test]
+    fn from_choose() {
+        let gzip = QualityValue::new(Gzip, 400_u16.into_quality());
+        let identity = QualityValue::new(Identity, 500_u16.into_quality());
+        let zstd = QualityValue::new(Zstd, 900_u16.into_quality());
+        let accept: AcceptEncoding = vec![gzip, identity, zstd].into_iter().collect();
+
+        let encoding = accept.choose();
+        assert_eq!(encoding, Zstd);
+    }
+
+    #[test]
+    fn from_choose_by() {
+        let gzip = QualityValue::new(Gzip, 400_u16.into_quality());
+        let identity = QualityValue::new(Identity, 500_u16.into_quality());
+        let zstd = QualityValue::new(Zstd, 900_u16.into_quality());
+        let accept: AcceptEncoding = vec![gzip, identity, zstd].into_iter().collect();
+
+        let support_accept_encoding: AcceptEncoding = vec![
+            QualityValue::new(Identity, 500_u16.into_quality()),
+            QualityValue::new(Zstd, 900_u16.into_quality()),
+        ]
+        .into_iter()
+        .collect();
+
+        let encoding = accept.choose_by(&support_accept_encoding);
+        assert_eq!(encoding, Zstd);
+        let support_accept_encoding: AcceptEncoding = vec![
+            QualityValue::new(Identity, 500_u16.into_quality()),
+            QualityValue::new(Zstd, 500_u16.into_quality()),
+        ]
+        .into_iter()
+        .collect();
+        let encoding = accept.choose_by(&support_accept_encoding);
+        assert_eq!(encoding, Identity);
     }
 }
