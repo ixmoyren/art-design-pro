@@ -978,7 +978,6 @@ dependencies = [
     "headers",
     "headers-core",
     "http",
-    "log",
     "mime_guess",
     "tokio",
     "tracing",
