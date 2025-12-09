@@ -4,6 +4,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum_extra::TypedHeader;
 use bytes::Bytes;
+use clap::Parser;
+use clap::builder::Styles;
+use clap::builder::styling::AnsiColor;
 use dist::Dist;
 use embed_it::Entry;
 use headers::HeaderMapExt;
@@ -13,24 +16,66 @@ use server::content_encoding::ContentEncoding;
 use server::etag::ETag;
 use server::if_none_match::IfNoneMatch;
 use server::{Encoding, IntoQuality, QualityValue};
+use std::str::FromStr;
 use tracing::log::{debug, error, info};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{Layer, Registry, filter};
 
+const CLI_HELP_STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Blue.on_default().bold())
+    .usage(AnsiColor::Blue.on_default().bold())
+    .literal(AnsiColor::White.on_default())
+    .placeholder(AnsiColor::Green.on_default());
+
+#[derive(Parser)]
+#[command(about = "This is an HTTP server that embeds static resources into executable files")]
+#[command(version = "0.1.0", long_about = None, styles = CLI_HELP_STYLES)]
+struct Cli {
+    #[arg(
+        short,
+        long,
+        default_value = "0.0.0.0",
+        help = "the address bound to the server， default value is 0.0.0.0"
+    )]
+    addr: String,
+    #[arg(
+        short,
+        long,
+        default_value = "8080",
+        help = "The port listened to by the server，default value is 8080"
+    )]
+    port: String,
+    #[arg(
+        long,
+        default_value = "debug",
+        help = "Set the log level and allow one of `error` `warn` `info` `debug` or `trace` to be set. The default value is debug"
+    )]
+    log_level: String,
+}
+
 #[tokio::main]
 async fn main() {
+    let Cli {
+        addr,
+        port,
+        log_level,
+    } = Cli::parse();
+    let addr = format!("{addr}:{port}");
     let subscriber = Registry::default().with(
         tracing_subscriber::fmt::layer()
             .pretty()
             .with_ansi(true)
-            .with_filter(filter::LevelFilter::from_level(tracing::Level::DEBUG)),
+            .with_filter(
+                filter::LevelFilter::from_str(log_level.as_str())
+                    .expect("Please provide the correct log level!"),
+            ),
     );
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
     let router = app();
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .expect("Failed to bind to 0.0.0:8080");
+        .expect("Please provide the correct IP address!");
     println!("Server on {}", listener.local_addr().unwrap());
     axum::serve(listener, router)
         .await
